@@ -1,0 +1,146 @@
+#!/usr/bin/python
+
+OID = '.1.3.6.1.4.1.25359.1'
+BASE_OID = OID + '.2.1'
+INDEX_OID = OID + '.1'
+
+import sys, commands, re, snmpresponse, math
+
+def kstat(name):
+    output = commands.getoutput("kstat -p " + name)
+    try:
+        return int(re.split("\s+", output)[1])
+    except:
+        return 0
+
+def zfs_arc_size(oid):
+    return ('gauge', kstat("zfs:0:arcstats:size") / 1024) # KB
+
+def zfs_arc_data(oid):
+    return ('gauge', kstat("zfs:0:arcstats:data_size") / 1024) # KB
+
+def zfs_arc_meta(oid):
+    return ('gauge', kstat("zfs:0:arcstats:meta_used") / 1024) # KB
+
+def zfs_arc_hits(oid):
+    return ('counter', kstat("zfs:0:arcstats:hits") % 2**32) # 32 bit counter
+
+def zfs_arc_misses(oid):
+    return ('counter', kstat("zfs:0:arcstats:misses") % 2**32) # 32 bit counter
+
+def zfs_arc_c(oid):
+    return ('gauge', kstat("zfs:0:arcstats:c") / 1024) # KB
+
+def zfs_arc_p(oid):
+    return ('gauge', kstat("zfs:0:arcstats:p") / 1024) # KB  
+
+def zfs_read(oid):
+    return ('counter', kstat("unix:0:vopstats_zfs:read_bytes") / 1024 % 2**32) # 32 bit KB counter
+
+def zfs_readdir(oid):
+    return ('counter', kstat("unix:0:vopstats_zfs:readdir_bytes") / 1024 % 2**32) # 32 bit KB counter
+
+def zfs_write(oid):
+    return ('counter', kstat("unix:0:vopstats_zfs:write_bytes") / 1024 % 2**32) # 32 bit KB counter
+
+def zfs_l2arc_hits(oid):
+    return ('counter', kstat("zfs:0:arcstats:l2_hits") % 2**32) # 32 bit counter
+
+def zfs_l2arc_misses(oid):
+    return ('counter', kstat("zfs:0:arcstats:l2_misses") % 2**32) # 32 bit counter
+
+def zfs_l2arc_write(oid):
+    return ('counter', kstat("zfs:0:arcstats:l2_write_bytes") / 1024 % 2**32) # 32 bit KB counter
+
+def zfs_l2arc_read(oid):
+    return ('counter', kstat("zfs:0:arcstats:l2_read_bytes") / 1024 % 2**32) # 32 bit KB counter
+
+def zfs_pools():
+    statuses = { "ONLINE": 1, "DEGRADED": 2, "FAULTED": 3 }
+    pools = [ re.split('\s+', line) for line in commands.getoutput("zpool list -H -o name,size,allocated,free,capacity,health").split("\n") ]
+    print ', '.join(map(str, pools))
+    return pools
+
+def zfs_used_avail(fs):
+    return [ int(x) / 1024 for x in commands.getoutput("zfs get -Hpo value used,available " + fs).split("\n")]
+
+def zfs_used_capacity(fs):
+    capacities = commands.getoutput("zpool list -H -o capacity " + fs)
+    return ('string', capacities )
+
+def zfs_snap_int(fs):
+    snap = commands.getoutput(" zfs get -rHp -o value usedbysnapshots " + fs + "  |awk -F: '{sum+=$1} END{print sum}'" )
+    return ( int(snap) / 1024)
+
+def zfs_snap(fs):
+    return ('gauge', zfs_snap_int(fs))
+
+def zfs_data_used(fs):
+    data_used = zfs_snap_int(fs) - zfs_used_avail(fs)[0]
+    return ('counter64', data_used)
+
+def zfs_used(fs, divisor=1):
+    return ('counter64', zfs_used_avail(fs)[0] / divisor)
+
+def zfs_avail(fs, divisor=1):
+    return ('gauge', zfs_used_avail(fs)[1] / divisor)
+
+def zfs_size(fs, divisor=1):
+    return ('gauge', ( zfs_used_avail(fs)[0] + zfs_used_avail(fs)[1] ) / divisor)
+
+def zfs_vols():
+    vols = [ re.split('\s+', line) for line in commands.getoutput("zfs list -H -t volume").split("\n")]
+    vols = [ ( row[0] ) for row in vols ]
+    return vols
+
+def parseSize(size):
+    sizeUnit = size[-1:]
+    if sizeUnit == 'K':
+        sizeNumber = 0
+    else:
+        if sizeUnit == 'M':
+            sizeNumber = int(size[:-1]) / 1024
+        else:
+            sizeNumber = size[:-1]
+    return sizeNumber
+
+# nymnetworks     OBJECT IDENTIFIER ::= {enterprises 25359}
+# zfs             OBJECT IDENTIFIER ::= {nymnetworks 1}
+# fs              OBJECT IDENTIFIER ::= {zfs 1}
+# arc             OBJECT IDENTIFIER ::= {zfs 2}
+# l2arc           OBJECT IDENTIFIER ::= {zfs 3}
+# io              OBJECT IDENTIFIER ::= {zfs 4}
+# vols            OBJECT IDENTIFIER ::= {zfs 5}
+
+result = [
+    ( BASE_OID + '.2.1.0', zfs_arc_size),
+    ( BASE_OID + '.2.2.0', zfs_arc_meta),
+    ( BASE_OID + '.2.3.0', zfs_arc_data),
+    ( BASE_OID + '.2.4.0', zfs_arc_hits),
+    ( BASE_OID + '.2.5.0', zfs_arc_misses),
+    ( BASE_OID + '.2.6.0', zfs_arc_c),
+    ( BASE_OID + '.2.7.0', zfs_arc_p),
+
+    ( BASE_OID + '.3.1.0', zfs_l2arc_hits),
+    ( BASE_OID + '.3.2.0', zfs_l2arc_misses),
+    ( BASE_OID + '.3.3.0', zfs_l2arc_read),
+    ( BASE_OID + '.3.4.0', zfs_l2arc_write),
+
+    ( BASE_OID + '.4.1.0', zfs_read),
+    ( BASE_OID + '.4.2.0', zfs_readdir),
+    ( BASE_OID + '.4.3.0', zfs_write),
+]
+
+
+
+i = 1
+unitList = ['M','m','K','k']
+
+for name,size,allocated,free,capacity,health in zfs_pools():
+    sizeNumber = int(math.floor(float(parseSize(size))))
+    allocatedNumber = int(math.ceil(float(parseSize(allocated))))
+    freeNumber = int(math.floor(float(parseSize(free))))
+    print sizeNumber
+    print allocatedNumber
+    print freeNumber
+

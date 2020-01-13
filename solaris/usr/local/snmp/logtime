@@ -1,0 +1,18 @@
+#!/usr/bin/python
+
+OID = '.1.3.6.1.4.1.25359.1'
+BASE_OID = OID + '.2.1'
+INDEX_OID = OID + '.1'
+
+import sys, commands, re, snmpresponse, math, calendar, time
+
+def logDiskGrowth():
+    epochTime = calendar.timegm(time.gmtime())
+
+    print epochTime
+    logFile = open("/usr/local/snmp/diskGrowth.txt", "a")
+    logFile.write('%d' % epochTime)
+    logFile.close()
+
+logDiskGrowth()
+
